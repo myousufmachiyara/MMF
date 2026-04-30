@@ -180,7 +180,6 @@ class SaleInvoiceController extends Controller
             'date'                 => 'required|date',
             'account_id'           => 'required|exists:chart_of_accounts,id',
             'type'                 => 'required|in:cash,credit',
-            'discount'             => 'nullable|numeric|min:0',
             'remarks'              => 'nullable|string',
             'purchase_invoice_id'  => 'nullable|exists:purchase_invoices,id',
             'items'                => 'required|array|min:1',
@@ -202,14 +201,13 @@ class SaleInvoiceController extends Controller
             foreach ($validated['items'] as $item) {
                 $subtotal += $item['sale_price'] * $item['quantity'];
             }
-            $netTotal = $subtotal - ($validated['discount'] ?? 0);
+            $netTotal = $subtotal;
 
             $invoice = SaleInvoice::create([
                 'invoice_no'          => $invoiceNo,
                 'date'                => $validated['date'],
                 'account_id'          => $validated['account_id'],
                 'type'                => $validated['type'],
-                'discount'            => $validated['discount'] ?? 0,
                 'net_amount'          => $netTotal,
                 'remarks'             => $validated['remarks'] ?? null,
                 'purchase_invoice_id' => $request->purchase_invoice_id ?: null,
@@ -223,7 +221,6 @@ class SaleInvoiceController extends Controller
                     'variation_id'    => $item['variation_id'] ?? null,
                     'sale_price'      => $item['sale_price'],
                     'quantity'        => $item['quantity'],
-                    'discount'        => 0,
                 ]);
             }
 
@@ -322,7 +319,6 @@ class SaleInvoiceController extends Controller
             'date'                 => 'required|date',
             'account_id'           => 'required|exists:chart_of_accounts,id',
             'type'                 => 'required|in:cash,credit',
-            'discount'             => 'nullable|numeric|min:0',
             'remarks'              => 'nullable|string',
             'purchase_invoice_id'  => 'nullable|exists:purchase_invoices,id',
             'items'                => 'required|array|min:1',
@@ -352,7 +348,6 @@ class SaleInvoiceController extends Controller
                 'date'                => $validated['date'],
                 'account_id'          => $validated['account_id'],
                 'type'                => $validated['type'],
-                'discount'            => $validated['discount'] ?? 0,
                 'net_amount'          => $netTotal,
                 'remarks'             => $validated['remarks'] ?? null,
                 'purchase_invoice_id' => $request->purchase_invoice_id ?: null,
@@ -367,7 +362,6 @@ class SaleInvoiceController extends Controller
                     'variation_id'    => $item['variation_id'] ?? null,
                     'sale_price'      => $item['sale_price'],
                     'quantity'        => $item['quantity'],
-                    'discount'        => 0,
                 ]);
             }
 
@@ -531,8 +525,7 @@ class SaleInvoiceController extends Controller
             $subTotal += $lineTotal;
         }
 
-        $invoiceDiscount = $invoice->discount ?? 0;
-        $netTotal        = $subTotal - $invoiceDiscount;
+        $netTotal        = $subTotal;
         $balanceDue      = $netTotal - $amountReceived;
 
         $html .= '
@@ -542,14 +535,7 @@ class SaleInvoiceController extends Controller
             <td align="right" bgcolor="#f5f5f5"><b>Sub Total</b></td>
             <td align="right"><b>' . number_format($subTotal, 2) . '</b></td>
         </tr>';
-
-        if ($invoiceDiscount > 0) {
-            $html .= '
-        <tr>
-            <td colspan="5" align="right">Less: Discount</td>
-            <td align="right">' . number_format($invoiceDiscount, 2) . '</td>
-        </tr>';
-        }
+        
 
         $html .= '
         <tr style="background-color:#f5f5f5;">

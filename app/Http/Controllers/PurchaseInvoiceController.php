@@ -520,9 +520,9 @@ class PurchaseInvoiceController extends Controller
             <thead>
                 <tr style="background-color:#f2f2f2;font-weight:bold;text-align:center;">
                     <th width="5%">#</th>
-                    <th width="35%">Item Description</th>
+                    <th width="30%">Item Description</th>
                     <th width="20%">Variation</th>
-                    <th width="10%">Qty</th>
+                    <th width="15%">Qty</th>
                     <th width="15%">Price</th>
                     <th width="15%">Total</th>
                 </tr>
@@ -538,9 +538,10 @@ class PurchaseInvoiceController extends Controller
             $html .= '
                 <tr>
                     <td width="5%" style="text-align:center;">' . ($i + 1) . '</td>
-                    <td width="35%">' . e($item->product->name ?? '-') . '</td>
+                    <td width="30%">' . e($item->product->name ?? '-') . '</td>
                     <td width="20%" style="text-align:center;">' . e($variationName) . '</td>
-<td width="10%" style="text-align:center;">' . number_format($item->quantity, 2) . ' ' . ($item->product->measurementUnit->shortcode ?? '') . '</td>                    <td width="15%" style="text-align:right;">'  . number_format($item->price, 2) . '</td>
+                    <td width="15%" style="text-align:center;">' . number_format($item->quantity, 2) . ' ' . ($item->product->measurementUnit->shortcode ?? '') . '</td>                    
+                    <td width="15%" style="text-align:right;">'  . number_format($item->price, 2) . '</td>
                     <td width="15%" style="text-align:right;">'  . number_format($lineTotal, 2) . '</td>
                 </tr>';
         }

@@ -73,7 +73,7 @@
                             <select id="dropship_pi_select" class="form-control select2-js">
                                 <option value="">— none —</option>
                             </select>
-                            <small class="text-warning fw-semibold" id="dropship_hint"></small>
+                            <small class="text-danger fw-semibold" id="dropship_hint"></small>
                         </div>
 
                     </div>

@@ -2,29 +2,31 @@
 
 namespace App\Http\Controllers;
 
-use Illuminate\Http\Request;
 use App\Models\Product;
+use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
+use Carbon\Carbon;
 
 class InventoryReportController extends Controller
 {
     public function inventoryReports(Request $request)
     {
-        $tab     = $request->get('tab', 'IL');
-        $itemId  = $request->get('item_id');
-        $from    = $request->get('from_date', date('Y-m-01'));
-        $to      = $request->get('to_date', date('Y-m-d'));
+        // ── Common ────────────────────────────────────────────────
+        $tab    = $request->input('tab', 'IL');
+        $from   = $request->input('from_date', date('Y-m-01'));
+        $to     = $request->input('to_date',   date('Y-m-d'));
+        $itemId = $request->input('item_id');
 
-        $products    = Product::with('variations')->orderBy('name')->get();
-        $itemLedger  = collect();
-        $openingQty  = 0;
-        $stockInHand = collect();
+        // $products — used by both tab filter dropdowns
+        $products = Product::with('variations')->orderBy('name')->get();
 
-        // ================================================================
-        // TAB 1 — ITEM LEDGER
-        // ================================================================
+        // ── TAB: ITEM LEDGER ──────────────────────────────────────
+        $itemLedger = collect();
+        $openingQty = 0;
+
         if ($tab === 'IL' && $itemId) {
 
+            // Opening qty = everything before $from
             $opPurchased = DB::table('purchase_invoice_items')
                 ->join('purchase_invoices', 'purchase_invoice_items.purchase_invoice_id', '=', 'purchase_invoices.id')
                 ->where('purchase_invoice_items.item_id', $itemId)
@@ -51,9 +53,10 @@ class InventoryReportController extends Controller
                 ->where('sale_returns.return_date', '<', $from)
                 ->sum('sale_return_items.qty');
 
-            $openingQty = ((float)$opPurchased + (float)$opSaleReturned)
-                        - ((float)$opSold      + (float)$opPurchaseReturned);
+            $openingQty = ((float) $opPurchased + (float) $opSaleReturned)
+                        - ((float) $opSold + (float) $opPurchaseReturned);
 
+            // Purchases in period
             $purchases = DB::table('purchase_invoice_items')
                 ->join('purchase_invoices', 'purchase_invoice_items.purchase_invoice_id', '=', 'purchase_invoices.id')
                 ->select(
@@ -67,6 +70,7 @@ class InventoryReportController extends Controller
                 ->whereNull('purchase_invoices.deleted_at')
                 ->whereBetween('purchase_invoices.invoice_date', [$from, $to]);
 
+            // Sales in period
             $sales = DB::table('sale_invoice_items')
                 ->join('sale_invoices', 'sale_invoice_items.sale_invoice_id', '=', 'sale_invoices.id')
                 ->select(
@@ -80,6 +84,7 @@ class InventoryReportController extends Controller
                 ->whereNull('sale_invoices.deleted_at')
                 ->whereBetween('sale_invoices.date', [$from, $to]);
 
+            // Purchase returns in period
             $purchaseReturns = DB::table('purchase_return_items')
                 ->join('purchase_returns', 'purchase_return_items.purchase_return_id', '=', 'purchase_returns.id')
                 ->select(
@@ -92,6 +97,7 @@ class InventoryReportController extends Controller
                 ->where('purchase_return_items.item_id', $itemId)
                 ->whereBetween('purchase_returns.return_date', [$from, $to]);
 
+            // Sale returns in period
             $saleReturns = DB::table('sale_return_items')
                 ->join('sale_returns', 'sale_return_items.sale_return_id', '=', 'sale_returns.id')
                 ->select(
@@ -113,21 +119,9 @@ class InventoryReportController extends Controller
                 ->map(fn($row) => (array) $row);
         }
 
-        // ================================================================
-        // TAB 2 — STOCK IN HAND
-        //
-        // ROOT CAUSE OF BUG:
-        //   The previous query did INNER JOIN on product_variations.
-        //   A product purchased with variation_id = null has NO rows in
-        //   product_variations, so the inner join returned 0 rows → empty.
-        //
-        // FIX:
-        //   Query at the product level, not the variation level.
-        //   - Products with NO variations: one row, stock = all purchases.
-        //   - Products WITH variations: one row per variation, PLUS a
-        //     catch-all "No Variation" row for any purchases/sales where
-        //     variation_id was left null.
-        // ================================================================
+        // ── TAB: STOCK IN HAND ────────────────────────────────────
+        $stockInHand = collect();
+
         if ($tab === 'SR') {
 
             $productQuery = Product::with('variations')
@@ -142,12 +136,10 @@ class InventoryReportController extends Controller
             $productRows = $productQuery->get();
 
             foreach ($productRows as $product) {
-
                 $hasVariations = $product->variations->isNotEmpty();
 
                 if (!$hasVariations) {
-
-                    // ── No variations: sum ALL rows for this product ───
+                    // No variations — sum all rows for this product
                     $purchased = (float) DB::table('purchase_invoice_items')
                         ->join('purchase_invoices', 'purchase_invoice_items.purchase_invoice_id', '=', 'purchase_invoices.id')
                         ->where('purchase_invoice_items.item_id', $product->id)
@@ -161,12 +153,10 @@ class InventoryReportController extends Controller
                         ->sum('sale_invoice_items.quantity');
 
                     $purchaseReturned = (float) DB::table('purchase_return_items')
-                        ->where('item_id', $product->id)
-                        ->sum('quantity');
+                        ->where('item_id', $product->id)->sum('quantity');
 
                     $saleReturned = (float) DB::table('sale_return_items')
-                        ->where('product_id', $product->id)
-                        ->sum('qty');
+                        ->where('product_id', $product->id)->sum('qty');
 
                     $qty = ($purchased + $saleReturned) - ($sold + $purchaseReturned);
 
@@ -180,18 +170,15 @@ class InventoryReportController extends Controller
                     }
 
                 } else {
-
-                    // ── Has variations ─────────────────────────────────
-
-                    // Catch-all row: purchases/sales where variation_id is null
-                    $nullQtyIn = (float) DB::table('purchase_invoice_items')
+                    // Has variations — catch-all for null variation_id rows
+                    $nullIn = (float) DB::table('purchase_invoice_items')
                         ->join('purchase_invoices', 'purchase_invoice_items.purchase_invoice_id', '=', 'purchase_invoices.id')
                         ->where('purchase_invoice_items.item_id', $product->id)
                         ->whereNull('purchase_invoice_items.variation_id')
                         ->whereNull('purchase_invoices.deleted_at')
                         ->sum('purchase_invoice_items.quantity');
 
-                    $nullQtyOut = (float) DB::table('sale_invoice_items')
+                    $nullOut = (float) DB::table('sale_invoice_items')
                         ->join('sale_invoices', 'sale_invoice_items.sale_invoice_id', '=', 'sale_invoices.id')
                         ->where('sale_invoice_items.product_id', $product->id)
                         ->whereNull('sale_invoice_items.variation_id')
@@ -204,7 +191,7 @@ class InventoryReportController extends Controller
                     $nullSR = (float) DB::table('sale_return_items')
                         ->where('product_id', $product->id)->whereNull('variation_id')->sum('qty');
 
-                    $nullQty = ($nullQtyIn + $nullSR) - ($nullQtyOut + $nullPR);
+                    $nullQty = ($nullIn + $nullSR) - ($nullOut + $nullPR);
 
                     if ($nullQty > 0) {
                         $stockInHand->push([
@@ -217,7 +204,6 @@ class InventoryReportController extends Controller
 
                     // One row per variation
                     foreach ($product->variations as $v) {
-
                         $vPurchased = (float) DB::table('purchase_invoice_items')
                             ->join('purchase_invoices', 'purchase_invoice_items.purchase_invoice_id', '=', 'purchase_invoices.id')
                             ->where('purchase_invoice_items.item_id', $product->id)
@@ -243,7 +229,7 @@ class InventoryReportController extends Controller
                         if ($vQty > 0) {
                             $stockInHand->push([
                                 'product'   => $product->name,
-                                'variation' => $v->sku ?? $v->name ?? '—',
+                                'variation' => $v->sku ?? '—',
                                 'quantity'  => $vQty,
                                 'unit'      => $product->unit_shortcode ?? '',
                             ]);
@@ -254,13 +240,13 @@ class InventoryReportController extends Controller
         }
 
         return view('reports.inventory_reports', compact(
-            'products',
+            'tab',
+            'from',
+            'to',
+            'products',      // for the filter dropdowns
             'itemLedger',
             'openingQty',
             'stockInHand',
-            'tab',
-            'from',
-            'to'
         ));
     }
 }
